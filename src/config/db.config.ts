@@ -1,7 +1,13 @@
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { IDataBaseConfig } from './config.interface';
 
-export default (): { db: IDataBaseConfig } => ({
+const environment = process.env.NODE_ENV;
+
+export default async (): Promise<{ db: IDataBaseConfig }> => ({
   db: {
-    uri: process.env.MONGO_URI || 'mongodb://localhost:27017/nest',
+    uri:
+      environment === 'test'
+        ? (await MongoMemoryReplSet.create({ replSet: { count: 1 } })).getUri()
+        : process.env.MONGO_URI,
   },
 });
