@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import { captureException } from '@sentry/node';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -49,6 +50,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     responseBody['path'] = path;
 
     if (httpStatus >= 500) {
+      captureException(exception);
+
       this.logger.error(
         exception,
         exception && exception.stack ? exception.stack : null,

@@ -18,7 +18,7 @@ import { IAppConfig } from './config/config.interface';
 import dbConfig from './config/db.config';
 import { AllExceptionsFilter } from './interceptors/exception.interceptor';
 import { ThrottlerBehindProxyGuard } from './middleware/throttler-proxy-guard';
-import { SentryModule } from './modules/sentry/sentry.module';
+import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 
 @Module({
   imports: [
@@ -51,20 +51,14 @@ import { SentryModule } from './modules/sentry/sentry.module';
       verboseMemoryLeak: true,
     }),
 
-    SentryModule.forRoot({
-      dsn: process.env.SENTRY_DNS,
-      environment: process.env.APP_ENV,
-      tracesSampleRate: 1.0,
-      debug: true,
-      attachStacktrace: true,
-      serverName: process.env.APP_NAME,
-    }),
+    SentryModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_FILTER, useClass: SentryGlobalFilter },
   ],
 })
 export class AppModule {
