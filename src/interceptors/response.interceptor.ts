@@ -8,26 +8,31 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { IResponse } from '../shared/interfaces';
 
-export interface Response extends IResponse {
+export interface IStructuredResponse extends IResponse {
   statusCode: number;
+  success: boolean;
+  errors?: any;
 }
 
 @Injectable()
 export class TransformResponseInterceptor<T>
-  implements NestInterceptor<T, Response>
+  implements NestInterceptor<T, IStructuredResponse>
 {
   intercept(
     context: ExecutionContext,
     next: CallHandler,
-  ): Observable<Response> {
+  ): Observable<IStructuredResponse> {
     return next.handle().pipe(
-      map(({ data = undefined, message }) => {
+      map(({ data = undefined, message, meta, errors }) => {
         const res = context.switchToHttp().getResponse();
 
         return {
           statusCode: res.statusCode,
+          success: true,
           message,
           data,
+          meta,
+          errors,
         };
       }),
     );

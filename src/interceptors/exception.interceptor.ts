@@ -8,6 +8,12 @@ import {
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { captureException } from '@sentry/node';
+import { IStructuredResponse } from './response.interceptor';
+
+export interface IAPIErrorDetail {
+  message: string;
+  field?: string;
+}
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -38,11 +44,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const path = httpAdapter.getRequestUrl(ctx.getRequest());
 
-    const responseBody = {
+    const responseBody: IStructuredResponse = {
       statusCode: httpStatus,
-      data: {
-        message: httpMessage,
-      },
+      message: httpMessage,
+      success: httpStatus < 400,
+      errors: this.formatErrors(message),
     };
 
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
@@ -58,5 +64,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
         responseBody,
       );
     }
+  }
+
+  formatErrors(error: any): IAPIErrorDetail[] {
+    let formattedErrors: IAPIErrorDetail[] = [];
+
+    if (
+      error &&
+      typeof error === 'object' &&
+      'isJoi' in error &&
+      error.details
+    ) {
+      formattedErrors = error.details.map((err: any) => ({
+        field: err.path.join('.'),
+        message: err.message.replace(/['"]/g, ''),
+      }));
+    } else if (Array.isArray(error)) {
+      formattedErrors = error;
+    } else if (typeof error === 'string') {
+      formattedErrors = [{ message: error }];
+    }
+
+    return formattedErrors;
   }
 }
