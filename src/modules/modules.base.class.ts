@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { IDebug, IVerbose } from './base.interface';
 
 export class ModuleBaseService {
-  logger: Logger = new Logger(ModuleAbstractService.name);
+  logger: Logger = new Logger(ModuleBaseService.name);
 
   verbose(payload: IVerbose) {
     return this.logger.verbose({ ...payload, class: payload.class.name });
