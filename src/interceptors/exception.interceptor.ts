@@ -8,11 +8,10 @@ import {
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { captureException } from '@sentry/node';
-import { IStructuredResponse } from './response.interceptor';
 
 export interface IAPIErrorDetail {
-  message: string;
   field?: string;
+  message: string;
 }
 
 @Catch()
@@ -22,7 +21,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: HttpException, host: ArgumentsHost): void {
     const { httpAdapter } = this.httpAdapterHost;
-
     const ctx = host.switchToHttp();
 
     const httpStatus =
@@ -30,61 +28,120 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
-      exception && exception.getResponse
-        ? exception.getResponse()['message']
-        : 'oops! something occurred, your request cannot be processed at the moment.';
+    let errorMessage = 'An unexpected error occurred.';
 
-    const res = message && typeof message !== 'string' ? message[0] : message;
+    let errors: IAPIErrorDetail[] = [];
 
-    const httpMessage =
-      httpStatus < 500
-        ? res
-        : 'oops! something occurred, your request cannot be processed at the moment.';
+    if (exception instanceof HttpException) {
+      const response = exception.getResponse();
 
-    const path = httpAdapter.getRequestUrl(ctx.getRequest());
+      if (typeof response === 'object') {
+        const responseObj = response as any;
 
-    const responseBody: IStructuredResponse = {
+        // Handle validation errors
+        if (responseObj.message && Array.isArray(responseObj.message)) {
+          errors = this.formatValidationErrors(responseObj.message);
+        } else {
+          errorMessage = responseObj.message || errorMessage;
+          errors = this.formatErrors(responseObj);
+        }
+      } else {
+        errorMessage = response as string;
+        errors = [{ message: errorMessage }];
+      }
+    }
+
+    const responseBody = {
       statusCode: httpStatus,
-      message: httpMessage,
-      success: httpStatus < 400,
-      errors: this.formatErrors(message),
+      message:
+        exception && exception.getResponse
+          ? exception.getResponse()['message']
+          : exception.message ||
+            'oops! something occurred, your request cannot be processed at the moment.', //errorMessage,
+      errors: errors,
+      error: this.getErrorType(httpStatus),
     };
 
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
 
-    responseBody['path'] = path;
-
     if (httpStatus >= 500) {
       captureException(exception);
-
-      this.logger.error(
-        exception,
-        exception && exception.stack ? exception.stack : null,
-        responseBody,
-      );
+      this.logger.error(exception, (exception as Error)?.stack, {
+        path: httpAdapter.getRequestUrl(ctx.getRequest()),
+        ...responseBody,
+      });
     }
   }
 
-  formatErrors(error: any): IAPIErrorDetail[] {
-    let formattedErrors: IAPIErrorDetail[] = [];
-
-    if (
-      error &&
-      typeof error === 'object' &&
-      'isJoi' in error &&
-      error.details
-    ) {
-      formattedErrors = error.details.map((err: any) => ({
-        field: err.path.join('.'),
-        message: err.message.replace(/['"]/g, ''),
-      }));
-    } else if (Array.isArray(error)) {
-      formattedErrors = error;
-    } else if (typeof error === 'string') {
-      formattedErrors = [{ message: error }];
+  private formatValidationErrors(validationErrors: any[]): IAPIErrorDetail[] {
+    if (!Array.isArray(validationErrors)) {
+      return [{ message: validationErrors }];
     }
 
-    return formattedErrors;
+    return validationErrors.map((error) => {
+      // If it's already in the correct format
+      if (error.field && error.message) {
+        return error;
+      }
+
+      // If it's a simple string
+      if (typeof error === 'string') {
+        const match = error.match(/^([^:]+?)(?:\smust|should)/);
+        return {
+          field: match ? match[1] : undefined,
+          message: error,
+        };
+      }
+
+      // If it's a validation error object
+      if (error.property && error.constraints) {
+        const messages = Object.values(error.constraints);
+        return {
+          field: error.property,
+          message: messages[0],
+        };
+      }
+
+      // Fallback
+      return {
+        message: error.message || error.toString(),
+      };
+    });
+  }
+
+  private formatErrors(error: any): IAPIErrorDetail[] {
+    if (!error) return [];
+
+    if (Array.isArray(error)) {
+      return error.map((err) => ({
+        field: err.field,
+        message: err.message,
+      }));
+    }
+
+    if (error.errors && Array.isArray(error.errors)) {
+      return error.errors;
+    }
+
+    return [{ message: error.message || 'An error occurred' }];
+  }
+
+  private getErrorType(status: number): string {
+    switch (status) {
+      case 400:
+        return 'Bad Request';
+      case 401:
+        return 'Unauthorized';
+      case 403:
+        return 'Forbidden';
+      case 404:
+        return 'Not Found';
+      case 422:
+        return 'Unprocessable Entity';
+      case 500:
+        return 'Internal Server Error';
+      default:
+        return 'Error';
+    }
   }
 }
